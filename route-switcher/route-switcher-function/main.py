@@ -287,9 +287,6 @@ def handler(event, context):
     config = config_route_tables_routers['config']
     all_routeTables = config_route_tables_routers['all_routeTables']
     routers = config_route_tables_routers['routers']
-    
-    print("Time of start checking router status:", (time.time() - start_time) , "sec")
-
     function_life_time = int(cron_interval) * 60
     checking_num = 1
     # repeat checking router status in loop 
@@ -392,14 +389,12 @@ def handler(event, context):
             config['updating_tables'] = False
             put_config(config)
             # exit from function as failover was executed for route tables
-            print("Time of exit from function after failover:", (time.time() - start_time) , "sec")
             return
                
         if (last_check_time + int(router_healthcheck_interval)) < function_life_time:
             time.sleep(checking_num * int(router_healthcheck_interval) - last_check_time)
             checking_num = checking_num + 1
         else:
-            print("Last time of checking router status:", (time.time() - start_time) , "sec")
             break
 
     
