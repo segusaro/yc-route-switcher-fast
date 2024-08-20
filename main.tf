@@ -80,6 +80,7 @@ resource "yandex_storage_bucket" "route_switcher_bucket" {
 }
 
 resource "yandex_storage_object" "route_switcher_config" {
+  count = var.start_module ? 1 : 0
   bucket     = yandex_storage_bucket.route_switcher_bucket.id
   access_key = yandex_iam_service_account_static_access_key.route_switcher_sa_s3_keys.access_key
   secret_key = yandex_iam_service_account_static_access_key.route_switcher_sa_s3_keys.secret_key
