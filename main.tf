@@ -65,7 +65,7 @@ resource "yandex_resourcemanager_folder_iam_member" "route_switcher_sa_roles" {
   member = "serviceAccount:${yandex_iam_service_account.route_switcher_sa.id}"
 }
 
-resource "yandex_resourcemanager_folder_iam_member" "route_switcher_vpc_sa_roles" {
+resource "yandex_resourcemanager_folder_iam_member" "route_switcher_vpc_private_sa_roles" {
   count     = length(var.route_table_folder_list)
   folder_id = var.route_table_folder_list[count.index]
   role   = "vpc.privateAdmin"
@@ -76,6 +76,13 @@ resource "yandex_resourcemanager_folder_iam_member" "route_switcher_vpc_gw_sa_ro
   count     = length(var.route_table_folder_list)
   folder_id = var.route_table_folder_list[count.index]
   role   = "vpc.user"
+  member = "serviceAccount:${yandex_iam_service_account.route_switcher_sa.id}"
+}
+
+resource "yandex_resourcemanager_folder_iam_member" "route_switcher_vpc_public_sa_roles" {
+  count     = length(var.route_table_folder_list)
+  folder_id = var.route_table_folder_list[count.index]
+  role   = "vpc.publicAdmin"
   member = "serviceAccount:${yandex_iam_service_account.route_switcher_sa.id}"
 }
 
