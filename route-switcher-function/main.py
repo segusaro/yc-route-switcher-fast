@@ -4,14 +4,21 @@ import boto3
 import requests
 import concurrent.futures as pool
 import time
+import datetime
 
 iam_token = ""
 endpoint_url='https://storage.yandexcloud.net'
 path = os.getenv('CONFIG_PATH')
 bucket = os.getenv('BUCKET_NAME')
-cron_interval = os.getenv('CRON_INTERVAL')
+cron_interval = int(os.getenv('CRON_INTERVAL'))
+# validate if cron_interval more than 10 minutes, than limit it to 10
+if cron_interval > 10:
+    cron_interval = 10
 back_to_primary = os.getenv('BACK_TO_PRIMARY').lower()
-router_healthcheck_interval = os.getenv('ROUTER_HCHK_INTERVAL')
+router_healthcheck_interval = int(os.getenv('ROUTER_HCHK_INTERVAL'))
+# validate if router_healthcheck_interval less than 10 seconds, than increase it to 10 seconds
+if router_healthcheck_interval < 10:
+    router_healthcheck_interval = 10
 
 def get_config(endpoint_url='https://storage.yandexcloud.net'):
     '''
@@ -239,7 +246,26 @@ def put_config(config, endpoint_url='https://storage.yandexcloud.net'):
     with open('/tmp/config.yaml', 'w') as outfile:
         yaml.dump(config, outfile, default_flow_style=False)
 
-    s3_client.upload_file('/tmp/config.yaml', bucket, path)
+    try:
+        s3_client.upload_file('/tmp/config.yaml', bucket, path)
+    except Exception as e:
+        print(f"Request to write config file in {bucket} bucket failed due to: {e}. Retrying in {cron_interval} minutes...")
+
+def write_metrics(metrics):
+    '''
+    write custom metrics in Yandex Monitoring
+    :param metrics: list of metrics to write
+    :return:
+    '''
+    try:
+        r = requests.post('https://monitoring.api.cloud.yandex.net/monitoring/v2/data/write?folderId=%s&service=custom' % folder_id,  json={"metrics": metrics}, headers={'Authorization': 'Bearer %s'  % iam_token})
+    except Exception as e:
+        print(f"Request to write metrics failed due to: {e}. Retrying in {cron_interval} minutes...")
+
+    if r.status_code != 200:
+        print(f"Unexpected status code {r.status_code} for writing metrics. Retrying in {cron_interval} minutes...")
+    if 'errorMessage' in r.json():
+        print(f"Error of writing metrics. More details: {r.json()['errorMessage']}. Retrying in {cron_interval} minutes...")
 
 
 def failover(route_table):
@@ -254,17 +280,25 @@ def failover(route_table):
         r = requests.patch('https://vpc.api.cloud.yandex.net/vpc/v1/routeTables/%s' % route_table['route_table_id'], json={"updateMask": "staticRoutes", "staticRoutes": route_table['routes'] } ,headers={'Authorization': 'Bearer %s'  % iam_token})
     except Exception as e:
         print(f"Request to update route table {route_table['route_table_id']} failed due to: {e}. Retrying in {cron_interval} minutes...")
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
         return
 
     if r.status_code != 200:
         print(f"Unexpected status code {r.status_code} for updating route table {route_table['route_table_id']}. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
         return
 
     if 'id' in r.json():
         operation_id = r.json()['id']
         print(f"Operation {operation_id} for updating route table {route_table['route_table_id']}. More details: {r.json()}")
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring about table change
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 1, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
     else:
         print(f"Failed to start operation for updating route table {route_table['route_table_id']}. Retrying in {cron_interval} minutes...")
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
 
 
 def handler(event, context):
@@ -272,6 +306,11 @@ def handler(event, context):
 
     global iam_token 
     iam_token = context.token['access_token']
+    global function_id
+    function_id = context.function_name
+    global folder_id
+    folder_id = event['event_metadata']['folder_id']
+    global metrics
 
     # get route tables from VPC
     config_route_tables_routers = get_config_route_tables_and_routers()
@@ -288,7 +327,7 @@ def handler(event, context):
     config = config_route_tables_routers['config']
     all_routeTables = config_route_tables_routers['all_routeTables']
     routers = config_route_tables_routers['routers']
-    function_life_time = int(cron_interval) * 60
+    function_life_time = cron_interval * 60
     checking_num = 1
     # repeat checking router status in loop 
     # checks router status and fails over if router failed
@@ -300,9 +339,9 @@ def handler(event, context):
             return
         if config['updating_tables'] == True:
             # current changes of next hops in route tables are still running, then wait for a timer
-            if (last_check_time + int(router_healthcheck_interval)) < function_life_time:
+            if (last_check_time + router_healthcheck_interval) < function_life_time:
                 print(f"Another operation for updating route tables is running. Retrying in {router_healthcheck_interval} seconds...")
-                time.sleep(checking_num * int(router_healthcheck_interval) - last_check_time)
+                time.sleep(checking_num * router_healthcheck_interval - last_check_time)
                 checking_num = checking_num + 1
                 continue
             else:
@@ -318,17 +357,22 @@ def handler(event, context):
         if routerStatus is None:
             # exit from function as some errors happened when checking router status
             return
-                
+ 
+        metrics = list()        
         healthy_nexthops = {}
         unhealthy_nexthops = {}
         for router in config['routers']:
             router_hc_address = router['healthchecked_ip']        
             router_interfaces = router['interfaces']
             if routerStatus[router_hc_address] != 'HEALTHY':
+                # add custom metric 'route_switcher.router_state' into metric list for Yandex Monitoring that router state is not healthy
+                metrics.append({"name": "route_switcher.router_state", "labels": {"router_ip": router_hc_address}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
                 # prepare dictionary with UNHEALTHY nexthops as {key:value}, where key - nexthop address, value - nexthop address of backup router
                 for interface in router_interfaces:    
                     unhealthy_nexthops[interface['own_ip']] = interface['backup_peer_ip']    
             else:
+                # add custom metric 'route_switcher.router_state' into metric list for Yandex Monitoring that router state is healthy
+                metrics.append({"name": "route_switcher.router_state", "labels": {"router_ip": router_hc_address}, "type": "IGAUGE", "value": 1, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
                 # prepare dictionary with HEALTHY nexthops as {key:value}, where key - nexthop address, value - nexthop address of backup router
                 for interface in router_interfaces:
                     healthy_nexthops[interface['own_ip']] = interface['backup_peer_ip']
@@ -373,12 +417,17 @@ def handler(event, context):
             if routeTable_changes['modified']:
                 # if next hop for some routes was changed add this table to all_modified_routeTables list
                 all_modified_routeTables.append({'route_table_id':config_route_table['route_table_id'], 'next_hop':routeTable_changes['next_hop'], 'routes':routeTable})
+            else:
+                # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
+                metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": config_route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
  
         
         if all_modified_routeTables: 
             # set flag of updating tables as True and update config file in bucket 
             config['updating_tables'] = True
             put_config(config)
+            # add custom custom metric 'route_switcher.switchover' into metric list for Yandex Monitoring that switchover is required
+            metrics.append({"name": "route_switcher.switchover", "labels": {"route_switcher_id": function_id}, "type": "IGAUGE", "value": 1, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
             # we have a list of all modified route tables 
             # create and launch a thread pool (with 8 max_workers) to execute failover function asynchronously for each modified route table    
             with pool.ThreadPoolExecutor(max_workers=8) as executer:
@@ -386,15 +435,21 @@ def handler(event, context):
                     executer.map(failover, all_modified_routeTables)
                 except Exception as e:
                     print(f"Request to execute failover function failed due to: {e}. Retrying in {cron_interval} minutes...")
-            
             # set flag of updating tables as False and update config file in bucket 
             config['updating_tables'] = False
             put_config(config)
+            # write metrics into Yandex Monitoring
+            write_metrics(metrics) 
             # exit from function as failover was executed for route tables
             return
+        else:
+            # add custom custom metric 'route_switcher.switchover' into metric list for Yandex Monitoring that switchover is not required
+            metrics.append({"name": "route_switcher.switchover", "labels": {"route_switcher_id": function_id}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
+            # write metrics into Yandex Monitoring
+            write_metrics(metrics) 
                
-        if (last_check_time + int(router_healthcheck_interval)) < function_life_time:
-            time.sleep(checking_num * int(router_healthcheck_interval) - last_check_time)
+        if (last_check_time + router_healthcheck_interval) < function_life_time:
+            time.sleep(checking_num * router_healthcheck_interval - last_check_time)
             checking_num = checking_num + 1
         else:
             break
