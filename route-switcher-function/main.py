@@ -330,18 +330,20 @@ def handler(event, context):
     function_life_time = cron_interval * 60
     checking_num = 1
     # repeat checking router status in loop 
-    # checks router status and fails over if router failed
+    # checks router status and fails over if router fails
     while (time.time() - start_time) < function_life_time:
+        last_check_time = time.time()
         # get latest config file from bucket
         config = get_config()
-        last_check_time = time.time() - start_time
         if config is None:
             return
         if config['updating_tables'] == True:
             # current changes of next hops in route tables are still running, then wait for a timer
-            if (last_check_time + router_healthcheck_interval) < function_life_time:
+            current_time = time.time()       
+            if (current_time - start_time + router_healthcheck_interval) < function_life_time:
                 print(f"Another operation for updating route tables is running. Retrying in {router_healthcheck_interval} seconds...")
-                time.sleep(checking_num * router_healthcheck_interval - last_check_time)
+                if (current_time - last_check_time) < router_healthcheck_interval:
+                    time.sleep(router_healthcheck_interval - (current_time - last_check_time))
                 checking_num = checking_num + 1
                 continue
             else:
@@ -447,12 +449,11 @@ def handler(event, context):
             metrics.append({"name": "route_switcher.switchover", "labels": {"route_switcher_id": function_id}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
             # write metrics into Yandex Monitoring
             write_metrics(metrics) 
-               
-        if (last_check_time + router_healthcheck_interval) < function_life_time:
-            time.sleep(checking_num * router_healthcheck_interval - last_check_time)
+        
+        current_time = time.time()       
+        if (current_time - start_time + router_healthcheck_interval) < function_life_time:
+            if (current_time - last_check_time) < router_healthcheck_interval:
+                time.sleep(router_healthcheck_interval - (current_time - last_check_time))
             checking_num = checking_num + 1
         else:
             break
-
-    
-
