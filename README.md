@@ -321,7 +321,7 @@ terraform apply
 | --- | --- | --- | --- |
 | `route_switcher.switchover` | Необходимость переключения next hop в таблицах маршрутизации | `0` - переключение не требуется<br>`1` - необходимо переключение | `route_switcher_id` - id функции route-switcher |
 | `route_switcher.router_state` | Состояние доступности сетевой ВМ | `0` - недоступна<br>`1` - доступна | `router_ip` - IP-адрес сетевой ВМ |
-| `route_switcher.table_changed` | Изменение next hop в таблице маршрутизации | `0` - отсутствуют изменения<br>`1` - выполнены изменения | `route_switcher_id` - id функции route-switcher<br>`route_table_id` - id таблицы маршрутизации |
+| `route_switcher.table_changed` | Изменение next hop в таблице маршрутизации | `0` - отсутствуют изменения<br>`1` - выполнены изменения<br>`2` - возникли ошибки при выполнения изменений | `route_switcher_id` - id функции route-switcher<br>`route_table_id` - id таблицы маршрутизации |
 
 - Метрики имеют значение `service=custom` (Custom Metrics, пользовательские метрики)  
 - Для визуализации этих метрик можно [создать дашборд](https://yandex.cloud/ru/docs/monitoring/operations/dashboard/create)

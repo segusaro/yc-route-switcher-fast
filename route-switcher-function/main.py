@@ -280,14 +280,14 @@ def failover(route_table):
         r = requests.patch('https://vpc.api.cloud.yandex.net/vpc/v1/routeTables/%s' % route_table['route_table_id'], json={"updateMask": "staticRoutes", "staticRoutes": route_table['routes'] } ,headers={'Authorization': 'Bearer %s'  % iam_token})
     except Exception as e:
         print(f"Request to update route table {route_table['route_table_id']} failed due to: {e}. Retrying in {cron_interval} minutes...")
-        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
-        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that error happened during table change
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
         return
 
     if r.status_code != 200:
         print(f"Unexpected status code {r.status_code} for updating route table {route_table['route_table_id']}. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
-        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
-        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that error happened during table change
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
         return
 
     if 'id' in r.json():
@@ -297,8 +297,8 @@ def failover(route_table):
         metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 1, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
     else:
         print(f"Failed to start operation for updating route table {route_table['route_table_id']}. Retrying in {cron_interval} minutes...")
-        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that table is not changed
-        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
+        # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that error happened during table change
+        metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_id": function_id, "route_table_id": route_table['route_table_id']}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
 
 
 def handler(event, context):
