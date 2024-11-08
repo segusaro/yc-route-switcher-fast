@@ -211,7 +211,7 @@ def get_config_route_tables_and_routers():
                     config_changed = True
 
             # add route table to all_routeTables dictionary
-            all_routeTables.update({config_route_table['route_table_id']:{"name":r.json()['name'],"staticRoutes":sorted(routeTable, key=lambda i: i['destinationPrefix'])}})
+            all_routeTables.update({config_route_table['route_table_id']:{'name':r.json()['name'],'staticRoutes':sorted(routeTable, key=lambda i: i['destinationPrefix'])}})
         else:
             print(f"There are no routes in route table {config_route_table['route_table_id']}. Please add at least one route.")
             route_table_error = True
@@ -381,8 +381,8 @@ def handler(event, context):
         router_with_changed_status = ""
         all_modified_routeTables = list()
         for config_route_table in config['route_tables']:
-            routeTable_name = all_routeTables[config_route_table['route_table_id']['name']]
-            routeTable = all_routeTables[config_route_table['route_table_id']['staticRoutes']]
+            routeTable_name = all_routeTables[config_route_table['route_table_id']]['name']
+            routeTable = all_routeTables[config_route_table['route_table_id']]['staticRoutes']
             routeTable_changes = {'modified':False}
             routeTable_prefixes = set()
             for ip_route in routeTable: 
