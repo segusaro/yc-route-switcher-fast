@@ -105,6 +105,7 @@ resource "yandex_storage_object" "route_switcher_config" {
       target_group_id       = yandex_lb_target_group.route_switcher_tg.id
       route_tables          = var.route_table_list
       routers = var.routers
+      router_security_groups = var.router_security_groups
     }
   )
 }
