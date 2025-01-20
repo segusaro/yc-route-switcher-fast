@@ -37,6 +37,7 @@ variable "back_to_primary" {
 variable "routers" {
   description = "List of routers. For each router specify its healtchecked ip address with subnet, list of router interfaces with ip addresses used as next hops in route tables and corresponding backup peer router ip adresses."
   type = list(object({
+    vm_id = string # vm id for router, required for primary router and backup router if 'router_security_groups' value is used
     healthchecked_ip = string  # ip address which will be checked by NLB to obtain router status. Usually located in management network.
     healthchecked_subnet_id = string # subnet id of healthchecked ip address
     interfaces = list(object({
@@ -63,4 +64,14 @@ variable "router_healthcheck_interval" {
   description = "Interval in seconds for checking routers status using NLB healthcheck. Changing interval to value lower than 10 sec is not recommended. If changing default values additional test is recommended for failure scenarios."
   type = number
   default = 60
+}
+
+variable "router_security_groups" {
+  description = "List of router security groups applied to primary and backup routers. Used with NLB/ALB to emulate Active/Standby traffic processing, e.g. for IPSec VPN Gateways. If primary router fails backup router network interfaces will be updated with 'primary_security_group_ids' list of security groups."
+  type = list(object({
+    interface_index = number # index of network interface, e.g. 1 
+    primary_security_group_ids = list(string) # list of security group ids for primary router
+    backup_security_group_ids = list(string) # list of security group ids for backup router
+  }))
+  default = []
 }
