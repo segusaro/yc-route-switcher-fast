@@ -67,9 +67,10 @@ variable "router_healthcheck_interval" {
 }
 
 variable "router_security_groups" {
-  description = "List of router security groups applied to primary and backup routers. Used with NLB/ALB to emulate Active/Standby traffic processing, e.g. for IPSec VPN Gateways. If primary router fails backup router network interfaces will be updated with 'primary_security_group_ids' list of security groups."
+  description = "List of router security groups applied to primary and backup routers. If primary router fails backup router network interfaces will be updated with 'primary_security_group_ids' list of security groups. Used with NLB/ALB to emulate Active/Standby traffic processing, e.g. for IPSec VPN Gateways."
   type = list(object({
-    interface_index = number # index of network interface, e.g. 1 
+    interface_index = number # index of network interface, e.g. 1
+    folder_id = string # folder id with security groups 
     primary_security_group_ids = list(string) # list of security group ids for primary router
     backup_security_group_ids = list(string) # list of security group ids for backup router
   }))
