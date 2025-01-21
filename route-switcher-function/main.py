@@ -312,28 +312,28 @@ def network_interface_update(router_network_interface):
     # need to add further information to check existing SG list on network interface
     # if exiting_net_int_sg_ids.sort() == new_net_int_sg_ids.sort():
 
-    print(f"Updating router id {router_network_interface['vm_id']} network interface index {router_network_interface['index']} with security groups: {router_network_interface['security_group_ids']}")
+    print(f"Updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']} with security groups: {router_network_interface['security_group_ids']}")
     try:
-        r = requests.patch('https://compute.api.cloud.yandex.net/compute/v1/instances/%s/updateNetworkInterface' % router_network_interface['vm_id'], json={"networkInterfaceIndex": router_network_interface['index'], "updateMask": "securityGroupIds", "securityGroupIds": router_network_interface['security_group_ids']} ,headers={'Authorization': 'Bearer %s'  % iam_token})
+        r = requests.patch('https://compute.api.cloud.yandex.net/compute/v1/instances/%s/updateNetworkInterface' % router_network_interface['vm_id'], json={"networkInterfaceIndex": str(router_network_interface['index']), "updateMask": "securityGroupIds", "securityGroupIds": router_network_interface['security_group_ids']} ,headers={'Authorization': 'Bearer %s'  % iam_token})
     except Exception as e:
-        print(f"Request to update router id {router_network_interface['vm_id']} network interface failed due to: {e}. Retrying in {cron_interval} minutes...")
+        print(f"Request to update router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']} failed due to: {e}. Retrying in {cron_interval} minutes...")
         # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring that error happened during security groups change for router
         # metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "route_table_name": route_table['name'], "folder_name": folder_name}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
         return
 
     if r.status_code != 200:
-        print(f"Unexpected status code {r.status_code} for updating router id {router_network_interface['vm_id']} network interface. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
+        print(f"Unexpected status code {r.status_code} for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
         # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that error happened during table change
         # metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_name": function_name, "route_table_name": route_table['name'], "folder_name": folder_name}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
         return
 
     if 'id' in r.json():
         operation_id = r.json()['id']
-        print(f"Operation {operation_id} for updating router id {router_network_interface['vm_id']} network interface. More details: {r.json()}")
+        print(f"Operation {operation_id} for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}. More details: {r.json()}")
         # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring about table change
         # metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_name": function_name, "route_table_name": route_table['name'], "folder_name": folder_name}, "type": "IGAUGE", "value": 1, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
     else:
-        print(f"Failed to start operation for updating router id {router_network_interface['vm_id']} network interface. Retrying in {cron_interval} minutes...")
+        print(f"Failed to start operation for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}. Retrying in {cron_interval} minutes...")
         # add custom metric 'route_switcher.table_changed' into metric list for Yandex Monitoring that error happened during table change
         # metrics.append({"name": "route_switcher.table_changed", "labels": {"route_switcher_name": function_name, "route_table_name": route_table['name'], "folder_name": folder_name}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
 
@@ -525,15 +525,15 @@ def handler(event, context):
                         if switch_routes_to == "backup":
                             # if switching from primary router to backup router add information to update network interface
                             # into all_primary_router_network_interfaces for primary router
-                            all_primary_router_network_interfaces.append({'vm_id': router_vm_ids[router_with_changed_status], 'index':interface['interface_index'], 'security_group_ids':interface['backup_security_group_ids']})
+                            all_primary_router_network_interfaces.append({'router_hc_address': router_with_changed_status, 'vm_id': router_vm_ids[router_with_changed_status], 'index':interface['interface_index'], 'security_group_ids':interface['backup_security_group_ids']})
                             # into all_backup_router_network_interfaces for backup router
-                            all_backup_router_network_interfaces.append({'vm_id': router_vm_ids[backup_router_hc_address], 'index':interface['interface_index'], 'security_group_ids':interface['primary_security_group_ids']})
+                            all_backup_router_network_interfaces.append({'router_hc_address': backup_router_hc_address, 'vm_id': router_vm_ids[backup_router_hc_address], 'index':interface['interface_index'], 'security_group_ids':interface['primary_security_group_ids']})
                         if switch_routes_to == "primary":
                             # if switching from backup router to primary router add information to update network interface
                             # into all_primary_router_network_interfaces for primary router
-                            all_primary_router_network_interfaces.append({'vm_id': router_vm_ids[router_with_changed_status], 'index':interface['interface_index'], 'security_group_ids':interface['primary_security_group_ids']})
+                            all_primary_router_network_interfaces.append({'router_hc_address': router_with_changed_status, 'vm_id': router_vm_ids[router_with_changed_status], 'index':interface['interface_index'], 'security_group_ids':interface['primary_security_group_ids']})
                             # into all_backup_router_network_interfaces for backup router
-                            all_backup_router_network_interfaces.append({'vm_id': router_vm_ids[backup_router_hc_address], 'index':interface['interface_index'], 'security_group_ids':interface['backup_security_group_ids']})
+                            all_backup_router_network_interfaces.append({'router_hc_address': backup_router_hc_address, 'vm_id': router_vm_ids[backup_router_hc_address], 'index':interface['interface_index'], 'security_group_ids':interface['backup_security_group_ids']})
 
                     if all_primary_router_network_interfaces and all_backup_router_network_interfaces:
                         # set flag of updating router network interfaces as True and update config file in bucket 
