@@ -87,8 +87,8 @@ resource "yandex_resourcemanager_folder_iam_member" "route_switcher_vpc_public_s
 }
 
 resource "yandex_resourcemanager_folder_iam_member" "route_switcher_vpc_user_sa_roles" {
-  count = length(var.router_security_groups)
-  folder_id = var.router_security_groups[count.index].folder_id
+  count = length(var.security_group_folder_list)
+  folder_id = var.security_group_folder_list[count.index]
   role   = "vpc.user"
   member = "serviceAccount:${yandex_iam_service_account.route_switcher_sa.id}"
 }
