@@ -42,12 +42,12 @@ variable "routers" {
     healthchecked_subnet_id = string # subnet id of healthchecked ip address
     interfaces = list(object({
       # 'own_ip', 'backup_peer_ip' attributes required for interface if its ip adress is used as next hop in route table
-      own_ip = string           # ip address of router interface
-      backup_peer_ip = string   # ip address of backup router, which will be used to switch next hop for a static route in case of a router failure
+      own_ip = optional(string)           # ip address of router interface
+      backup_peer_ip = optional(string)   # ip address of backup router, which will be used to switch next hop for a static route in case of a router failure
       # 'index', 'own_security_group_ids', 'backup_security_group_ids' attributes required for interface if security groups should be switched between primary and backup routers in case of a router failure
-      index = number # index of network interface, e.g. 1
-      own_security_group_ids = list(string) # list of security group ids for primary router
-      backup_security_group_ids = list(string) # list of security group ids for backup router
+      index = optional(number) # index of network interface, e.g. 1
+      own_security_group_ids = optional(list(string)) # list of security group ids for primary router
+      backup_security_group_ids = optional(list(string)) # list of security group ids for backup router
     })) 
   }))
   default = []
