@@ -139,20 +139,6 @@ def get_config_route_tables_and_routers():
                 continue
             
             for interface in router_interfaces:
-                # prepare dictionary with router nexthops as {key:value}, where key - nexthop address, value - nexthop address of backup router
-                if 'own_ip' in interface and interface['own_ip']:
-                    if 'backup_peer_ip' in interface and interface['backup_peer_ip']:
-                        nexthops[interface['own_ip']] = interface['backup_peer_ip']
-                        # prepare dictionary with router healthcheck IP addresses as {key:value}, where key - nexthop address, value - router healthcheck IP address of this nexthop address
-                        routers[interface['own_ip']] = router_hc_address      
-                    else:
-                        print(f"Router {router_hc_address} does not have 'backup_peer_ip' configuration for interface. Please add 'backup_peer_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
-                        router_error = True
-                        continue
-                else:
-                    print(f"Router {router_hc_address} does not have 'own_ip' configuration for interface. Please add 'own_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
-                    router_error = True
-                    continue  
                 if ('index' in interface and interface['index']) or ('own_security_group_ids' in interface and interface['own_security_group_ids']) or ('backup_security_group_ids' in interface and interface['backup_security_group_ids']):
                     if ('index' in interface and interface['index']) and ('own_security_group_ids' in interface and interface['own_security_group_ids']) and ('backup_security_group_ids' in interface and interface['backup_security_group_ids']):
                         if 'vm_id' not in router or not router['vm_id']:
@@ -163,6 +149,22 @@ def get_config_route_tables_and_routers():
                         print(f"Router {router_hc_address} does not have configuration for security groups for interface. Please check and add 'index', 'own_security_group_ids', 'backup_security_group_ids' values in 'interfaces' input variable for Terraform route-switcher module.")
                         router_error = True
                         continue
+                # prepare dictionary with router nexthops as {key:value}, where key - nexthop address, value - nexthop address of backup router
+                if 'own_ip' in interface and interface['own_ip']:
+                    if 'backup_peer_ip' in interface and interface['backup_peer_ip']:
+                        nexthops[interface['own_ip']] = interface['backup_peer_ip']
+                        # prepare dictionary with router healthcheck IP addresses as {key:value}, where key - nexthop address, value - router healthcheck IP address of this nexthop address
+                        routers[interface['own_ip']] = router_hc_address      
+                    else:
+                        if not (('index' in interface and interface['index']) or ('own_security_group_ids' in interface and interface['own_security_group_ids']) or ('backup_security_group_ids' in interface and interface['backup_security_group_ids'])):
+                            print(f"Router {router_hc_address} does not have 'backup_peer_ip' configuration for interface. Please add 'backup_peer_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
+                            router_error = True
+                            continue
+                else:
+                    if not (('index' in interface and interface['index']) or ('own_security_group_ids' in interface and interface['own_security_group_ids']) or ('backup_security_group_ids' in interface and interface['backup_security_group_ids'])):
+                        print(f"Router {router_hc_address} does not have 'own_ip' configuration for interface. Please add 'own_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
+                        router_error = True
+                        continue            
 
         else:
             print(f"Router {router_hc_address} is not in target endpoints of load balancer {config['loadBalancerId']}. Please check load balancer configuration or 'routers' input variable for Terraform route-switcher module.")
