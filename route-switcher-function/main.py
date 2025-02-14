@@ -122,6 +122,8 @@ def get_config_route_tables_and_routers():
     
     nexthops = {}
     router_error = False
+    vm_id_counter = 0
+    primary_counter = 0
     routers = {}
     for router in config['routers']:
         if 'healthchecked_ip' in router and router['healthchecked_ip']:
@@ -139,14 +141,14 @@ def get_config_route_tables_and_routers():
                 continue
             
             for interface in router_interfaces:
-                if ('index' in interface and interface['index']) or ('own_security_group_ids' in interface and interface['own_security_group_ids']) or ('backup_security_group_ids' in interface and interface['backup_security_group_ids']):
-                    if ('index' in interface and interface['index']) and ('own_security_group_ids' in interface and interface['own_security_group_ids']) and ('backup_security_group_ids' in interface and interface['backup_security_group_ids']):
+                if ('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids']):
+                    if ('index' in interface and interface['index']) and ('security_group_ids' in interface and interface['security_group_ids']):
                         if 'vm_id' not in router or not router['vm_id']:
                             print(f"Router {router_hc_address} does not have 'vm_id' configuration. Please add 'vm_id' value in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
                             router_error = True
-                            continue
+                            break
                     else:
-                        print(f"Router {router_hc_address} does not have configuration for security groups for interface. Please check and add 'index', 'own_security_group_ids', 'backup_security_group_ids' values in 'interfaces' input variable for Terraform route-switcher module.")
+                        print(f"Router {router_hc_address} does not have configuration for security groups for interface. Please check and add 'index', 'security_group_ids' values in 'interfaces' input variable for Terraform route-switcher module.")
                         router_error = True
                         continue
                 # prepare dictionary with router nexthops as {key:value}, where key - nexthop address, value - nexthop address of backup router
@@ -156,20 +158,30 @@ def get_config_route_tables_and_routers():
                         # prepare dictionary with router healthcheck IP addresses as {key:value}, where key - nexthop address, value - router healthcheck IP address of this nexthop address
                         routers[interface['own_ip']] = router_hc_address      
                     else:
-                        if not (('index' in interface and interface['index']) or ('own_security_group_ids' in interface and interface['own_security_group_ids']) or ('backup_security_group_ids' in interface and interface['backup_security_group_ids'])):
+                        if not (('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids'])):
                             print(f"Router {router_hc_address} does not have 'backup_peer_ip' configuration for interface. Please add 'backup_peer_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
                             router_error = True
                             continue
                 else:
-                    if not (('index' in interface and interface['index']) or ('own_security_group_ids' in interface and interface['own_security_group_ids']) or ('backup_security_group_ids' in interface and interface['backup_security_group_ids'])):
+                    if not (('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids'])):
                         print(f"Router {router_hc_address} does not have 'own_ip' configuration for interface. Please add 'own_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
                         router_error = True
                         continue            
-
+            if 'vm_id' in router and router['vm_id']:
+                vm_id_counter += 1
+            if 'primary' in router and router['primary']:
+                primary_counter += 1
         else:
             print(f"Router {router_hc_address} is not in target endpoints of load balancer {config['loadBalancerId']}. Please check load balancer configuration or 'routers' input variable for Terraform route-switcher module.")
             router_error = True
 
+    if vm_id_counter == 1:
+        print(f"There is only one router with 'vm_id' configuration. Switching of security group between primary and backup routers does not work. Please add 'vm_id' value to another router in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
+        router_error = True
+    
+    if vm_id_counter and primary_counter != 1:
+        print(f"There should be one router with 'primary = true' configuration. Switching of security group between primary and backup routers does not work. Please add 'primary = true' value to only one router in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
+        router_error = True
 
     all_routeTables = {}
     config_changed = False
@@ -242,56 +254,66 @@ def get_config_route_tables_and_routers():
 
     return {'config':config, 'all_routeTables':all_routeTables, 'routers':routers, 'error_message':error_message}
 
-def get_security_groups(config):
+def get_security_groups(vm_id, healthchecked_ip):
     '''
-    if 'router_security_groups' value is used in module configuration, get current list of security group ids, list of security group ids for primary and backup routers
-    :return: dictionary with router network interfaces with security groups as {key:value}, where key - combination of router vm id and interface index, value - dictionary with current list of security group ids, list of security group ids for primary and backup routers
+    get current list of security group ids for a router
+    :return: dictionary with router network interfaces with security groups as {key:value}, where key - network interface index, value - current list of security group ids
     '''
-    if not 'router_security_groups' in config:
-        return
-    config_interfaces_with_sg = {}
-    for interface in config['router_security_groups']:
-        if 'interface_index' not in interface:
-            print("Router interface does not have 'interface_index' configuration. Please add 'interface_index' value in 'router_security_groups' input variable for Terraform route-switcher module.") 
-            continue
-        if 'primary_security_group_ids' not in interface:
-            print("Router interface does not have 'primary_security_group_ids' configuration. Please add 'primary_security_group_ids' value in 'router_security_groups' input variable for Terraform route-switcher module.") 
-            continue
-        if 'backup_security_group_ids' not in interface:
-            print("Router interface does not have 'backup_security_group_ids' configuration. Please add 'backup_security_group_ids' value in 'router_security_groups' input variable for Terraform route-switcher module.")
-            continue
-        config_interfaces_with_sg[str(interface['interface_index'])] = {'primary_security_group_ids': interface['primary_security_group_ids'], 'backup_security_group_ids': interface['backup_security_group_ids']}
-    
-    if config_interfaces_with_sg:
-        request_error = False
-        all_router_network_interfaces_with_sg = {}
-        # get security groups for network interfaces from Compute API
-        for router in config['routers']:
-            if 'vm_id' in router:
-                try:    
-                    r = requests.get("https://compute.api.cloud.yandex.net/compute/v1/instances/%s" % router['vm_id'], headers={'Authorization': 'Bearer %s'  % iam_token})
-                except Exception as e:
-                    print(f"Request to get security groups for router {router['healthchecked_ip']} network interfaces failed due to: {e}. Retrying in {cron_interval} minutes...")
-                    request_error = True
-                    continue 
-                
-                if r.status_code != 200:
-                    print(f"Unexpected status code {r.status_code} for getting security groups for router {router['healthchecked_ip']} network interfaces. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
-                    request_error = True
-                    continue 
 
-                if 'networkInterfaces' in r.json():
-                    for interface in r.json()['networkInterfaces']:
-                        if interface['index'] in config_interfaces_with_sg:
-                            # prepare dictionary with router network interfaces with security groups as {key:value}, where key - combination of router vm id and interface index, value - dictionary with current list of security group ids, list of security group ids for primary and backup routers
-                            all_router_network_interfaces_with_sg[router['vm_id'] + '-' + interface['index']] = {**{'current_security_group_ids': interface['securityGroupIds']}, **config_interfaces_with_sg[interface['index']]}
-                else:
-                    print(f"There are no network interfaces in router {router['healthchecked_ip']}. Please add required network interfaces. Retrying in {cron_interval} minutes...")
-        if all_router_network_interfaces_with_sg:
-            return all_router_network_interfaces_with_sg
-        else:
-            if not request_error: 
-                print("Routers does not have 'vm_id' configuration. Please add 'vm_id' value in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...") 
+    network_interfaces_security_group_ids = {}
+    all_modified_router_network_interfaces = list()
+    # get security groups for network interfaces from Compute API
+    try:    
+        r = requests.get("https://compute.api.cloud.yandex.net/compute/v1/instances/%s" % vm_id, headers={'Authorization': 'Bearer %s'  % iam_token})
+    except Exception as e:
+        print(f"Request to get security groups for router {healthchecked_ip} network interfaces failed due to: {e}. Retrying in {cron_interval} minutes...")
+        return     
+    if r.status_code != 200:
+        print(f"Unexpected status code {r.status_code} for getting security groups for router {healthchecked_ip} network interfaces. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
+        return 
+    if 'networkInterfaces' in r.json():
+        for interface in r.json()['networkInterfaces']:
+            # prepare dictionary with router network interfaces with security groups as {key:value}, where key - router interface index, value - current list of security group ids
+            network_interfaces_security_group_ids[interface['index']] = interface['securityGroupIds']
+    else:
+        print(f"There are no network interfaces in router {healthchecked_ip}. Please add required network interfaces. Retrying in {cron_interval} minutes...")
+        return    
+    return network_interfaces_security_group_ids
+
+
+def get_diff_security_groups(vm_id, healthchecked_ip, config_router_interfaces):
+    '''
+    get difference of current list of security group ids for a router and list of security group ids in configuration file from bucket to compare with 
+    :return: list of all router network interfaces with list of security groups which should be applied
+    '''
+
+    network_interfaces_security_group_ids = {}
+    all_modified_router_network_interfaces = list()
+    # get security groups for network interfaces from Compute API
+    try:    
+        r = requests.get("https://compute.api.cloud.yandex.net/compute/v1/instances/%s" % vm_id, headers={'Authorization': 'Bearer %s'  % iam_token})
+    except Exception as e:
+        print(f"Request to get security groups for router {healthchecked_ip} network interfaces failed due to: {e}. Retrying in {cron_interval} minutes...")
+        return     
+    if r.status_code != 200:
+        print(f"Unexpected status code {r.status_code} for getting security groups for router {healthchecked_ip} network interfaces. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
+        return 
+    if 'networkInterfaces' in r.json():
+        for interface in r.json()['networkInterfaces']:
+            # prepare dictionary with router network interfaces with security groups as {key:value}, where key - router interface index, value - current list of security group ids
+            network_interfaces_security_group_ids[interface['index']] = interface['securityGroupIds']
+    else:
+        print(f"There are no network interfaces in router {healthchecked_ip}. Please add required network interfaces. Retrying in {cron_interval} minutes...")
+        return
+    
+    for config_interface in config_router_interfaces:
+        if config_interface['index']:
+            # if there is difference between current security groups for routers and list of security groups in configuration file which we need to compare 
+            if (sorted(network_interfaces_security_group_ids[str(config_interface['index'])]) != sorted(config_interface['security_group_ids'])):
+                all_modified_router_network_interfaces.append({'router_hc_address': healthchecked_ip, 'vm_id': vm_id, 'index': interface['index'], 'security_group_ids':interface['security_group_ids']})
+    
+    if all_modified_router_network_interfaces:
+        return all_modified_router_network_interfaces           
 
     
 def put_config(config, endpoint_url='https://storage.yandexcloud.net'):
@@ -427,6 +449,9 @@ def handler(event, context):
     routers = config_route_tables_routers['routers']
     function_life_time = cron_interval * 60
     checking_num = 1
+    unhealthy_nexthops = {}
+    router_vm_ids = {}
+    routerStatus = {}
     # repeat checking router status in loop 
     # checks router status and fails over if router fails
     while (time.time() - start_time) < function_life_time:
@@ -450,7 +475,7 @@ def handler(event, context):
                 # set flag of updating tables as False and update config file in bucket 
                 config['updating_tables'] = False
                 put_config(config)
-                break
+                return
 
         if config['updating_network_interfaces'] == True:
             # current changes of router network interfaces are still running, then wait for a timer
@@ -467,7 +492,7 @@ def handler(event, context):
                 # set flag of updating network interfaces as False and update config file in bucket 
                 config['updating_network_interfaces'] = False
                 put_config(config)
-                break
+                return
 
         # get router status from NLB
         routerStatus = get_router_status(config)
@@ -496,9 +521,8 @@ def handler(event, context):
                     healthy_nexthops[interface['own_ip']] = interface['backup_peer_ip']
             # prepare dictionary with VM id of routers as {key:value}, where key - router healthcheck IP address, value - vm id
             if 'vm_id' in router and router['vm_id']:
-                # router_vm_ids[router_hc_address] = router['vm_id'] 
-                router_vm_ids[router_hc_address] = {'vm_id': router['vm_id'], 'interfaces': router['interfaces']}  
-        
+                router_vm_ids[router_hc_address] = {'vm_id': router['vm_id'], 'primary': router['primary'], 'interfaces': router['interfaces']}  
+
         router_with_changed_status = ""
         backup_router_hc_address = ""
         switch_security_groups_to = ""
@@ -515,19 +539,31 @@ def handler(event, context):
                         # populate routeTable_prefixes set with route table prefixes
                         routeTable_prefixes.add(ip_route['destinationPrefix'])
                         if ip_route['nextHopAddress'] in unhealthy_nexthops:
-                            # if primary router is not healthy change next hop address to backup router  
-                            backup_router = unhealthy_nexthops[ip_route['nextHopAddress']]
-                            # also check whether backup router address is in healthy next hops
-                            if backup_router in healthy_nexthops:
-                                if router_with_changed_status != routers[ip_route['nextHopAddress']]:
-                                    router_with_changed_status = routers[ip_route['nextHopAddress']]
-                                    print(f"Router {router_with_changed_status} is UNHEALTHY.")
-                                    backup_router_hc_address = routers[backup_router]
-                                    switch_security_groups_to = "backup"                     
-                                ip_route.update({'nextHopAddress':backup_router})
-                                routeTable_changes = {'modified':True, 'next_hop':backup_router}
+                            # get primary router from config stored in bucket
+                            primary_router = config_route_table['routes'][ip_route['destinationPrefix']]
+                            if primary_router in healthy_nexthops and ip_route['nextHopAddress'] != primary_router: 
+                                # if primary router became healthy and backup router is still used as next hop, change next hop address to primary router                     
+                                if router_with_changed_status != routers[primary_router]:
+                                    router_with_changed_status = routers[primary_router]
+                                    print(f"Router {router_with_changed_status} became HEALTHY.")
+                                    backup_router_hc_address = routers[ip_route['nextHopAddress']]
+                                    switch_security_groups_to = "primary"
+                                ip_route.update({'nextHopAddress':primary_router})
+                                routeTable_changes = {'modified':True, 'next_hop':primary_router}
                             else:
-                                print(f"Backup next hop {backup_router} is not healthy. Can not switch next hop {ip_route['nextHopAddress']} for route {ip_route['destinationPrefix']} in route table {config_route_table['route_table_id']}. Retrying in {cron_interval} minutes...")
+                                # if primary router is not healthy change next hop address to backup router  
+                                backup_router = unhealthy_nexthops[ip_route['nextHopAddress']]                                
+                                # also check whether backup router address is in healthy next hops
+                                if backup_router in healthy_nexthops:
+                                    if router_with_changed_status != routers[ip_route['nextHopAddress']]:
+                                        router_with_changed_status = routers[ip_route['nextHopAddress']]
+                                        print(f"Router {router_with_changed_status} is UNHEALTHY.")
+                                        backup_router_hc_address = routers[backup_router]
+                                        switch_security_groups_to = "backup"                     
+                                    ip_route.update({'nextHopAddress':backup_router})
+                                    routeTable_changes = {'modified':True, 'next_hop':backup_router}
+                                else:
+                                    print(f"Backup next hop {backup_router} is not healthy. Can not switch next hop {ip_route['nextHopAddress']} for route {ip_route['destinationPrefix']} in route table {config_route_table['route_table_id']}. Retrying in {cron_interval} minutes...")   
                         else:
                             # if route-switcher module has 'back_to_primary' input variable set as 'true' we back to primary router after its recovery
                             if back_to_primary == 'true':
@@ -568,68 +604,130 @@ def handler(event, context):
             # set flag of updating tables as False and update config file in bucket 
             config['updating_tables'] = False
             put_config(config)
-            
-            if router_vm_ids:
-                all_primary_router_network_interfaces = list()
-                all_backup_router_network_interfaces = list()
-                for router_hc_address in router_vm_ids:
-                    interfaces = router_vm_ids[router_hc_address]['interfaces']
-                    for interface in interfaces:
-                        if switch_security_groups_to == "backup":
-                            # if switching from primary router to backup router add information to update network interface
-                            # into all_primary_router_network_interfaces for primary router
-                            all_primary_router_network_interfaces.append({'router_hc_address': router_with_changed_status, 'vm_id': router_vm_ids[router_with_changed_status]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['backup_security_group_ids']})
-                            # into all_backup_router_network_interfaces for backup router
-                            all_backup_router_network_interfaces.append({'router_hc_address': backup_router_hc_address, 'vm_id': router_vm_ids[backup_router_hc_address]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['own_security_group_ids']})
-                        if switch_security_groups_to == "primary":
-                            # if switching from backup router to primary router add information to update network interface
-                            # into all_primary_router_network_interfaces for primary router
-                            all_primary_router_network_interfaces.append({'router_hc_address': router_with_changed_status, 'vm_id': router_vm_ids[router_with_changed_status]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['own_security_group_ids']})
-                            # into all_backup_router_network_interfaces for backup router
-                            all_backup_router_network_interfaces.append({'router_hc_address': backup_router_hc_address, 'vm_id': router_vm_ids[backup_router_hc_address]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['backup_security_group_ids']})
-
-                if all_primary_router_network_interfaces and all_backup_router_network_interfaces:
-                    # set flag of updating router network interfaces as True and update config file in bucket 
-                    config['updating_network_interfaces'] = True
-                    put_config(config)
-                    # we have a list of all modified primary and backup router network interfaces 
-                    # create and launch a thread pool (with 8 max_workers) to execute network_interface_update function asynchronously for each network interface    
-                    # start with first router based on switch_security_groups_to value
-                    with pool.ThreadPoolExecutor(max_workers=8) as executer:
-                        try:
-                            if switch_security_groups_to == "backup":
-                                # launch execution of updating primary router network interfaces 
-                                executer.map(network_interface_update, all_primary_router_network_interfaces)
-                            if switch_security_groups_to == "primary":
-                                # launch execution of updating backup router network interfaces 
-                                executer.map(network_interface_update, all_backup_router_network_interfaces)
-                        except Exception as e:
-                            print(f"Request to execute network_interface_update function failed due to: {e}. Retrying in {cron_interval} minutes...")
-                    # continue with second router based on switch_security_groups_to value
-                    with pool.ThreadPoolExecutor(max_workers=8) as executer:
-                        try:
-                            if switch_security_groups_to == "backup":
-                                # launch execution of updating backup router network interfaces
-                                executer.map(network_interface_update, all_backup_router_network_interfaces)
-                            if switch_security_groups_to == "primary":
-                                # launch execution of updating backup router network interfaces
-                                executer.map(network_interface_update, all_primary_router_network_interfaces)
-                        except Exception as e:
-                            print(f"Request to execute network_interface_update function failed due to: {e}. Retrying in {cron_interval} minutes...")
-                    # set flag of updating router network interfaces as False and update config file in bucket 
-                    config['updating_network_interfaces'] = False
-                    put_config(config)
-
             # write metrics into Yandex Monitoring
-            write_metrics(metrics) 
-            # exit from function as failover was executed for route tables
-            return
+            write_metrics(metrics)
+
+            # if router_vm_ids:
+            #     # prepare list of primary router network interfaces for updating security groups 
+            #     all_primary_router_network_interfaces = list()
+            #     for interface in router_vm_ids[router_with_changed_status]['interfaces']:
+            #         if (interface['index'] and interface['own_security_group_ids'] and interface['backup_security_group_ids']):
+            #             if switch_security_groups_to == "backup":
+            #                 # if switching from primary router to backup router add information to update network interface
+            #                 all_primary_router_network_interfaces.append({'router_hc_address': router_with_changed_status, 'vm_id': router_vm_ids[router_with_changed_status]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['backup_security_group_ids']})
+            #             if switch_security_groups_to == "primary":
+            #                 # if switching from backup router to primary router add information to update network interface
+            #                 all_primary_router_network_interfaces.append({'router_hc_address': router_with_changed_status, 'vm_id': router_vm_ids[router_with_changed_status]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['own_security_group_ids']})
+            #     # prepare list of backup router network interfaces for updating security groups
+            #     all_backup_router_network_interfaces = list()
+            #     for interface in router_vm_ids[backup_router_hc_address]['interfaces']:
+            #         if (interface['index'] and interface['own_security_group_ids'] and interface['backup_security_group_ids']):
+            #             if switch_security_groups_to == "backup":
+            #                 # if switching from primary router to backup router add information to update network interface
+            #                 all_backup_router_network_interfaces.append({'router_hc_address': backup_router_hc_address, 'vm_id': router_vm_ids[backup_router_hc_address]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['backup_security_group_ids']})
+            #             if switch_security_groups_to == "primary":
+            #                 # if switching from backup router to primary router add information to update network interface
+            #                 all_backup_router_network_interfaces.append({'router_hc_address': backup_router_hc_address, 'vm_id': router_vm_ids[backup_router_hc_address]['vm_id'], 'index':interface['index'], 'security_group_ids':interface['own_security_group_ids']})
+
+            #     if all_primary_router_network_interfaces and all_backup_router_network_interfaces:
+            #         # set flag of updating router network interfaces as True and update config file in bucket 
+            #         config['updating_network_interfaces'] = True
+            #         put_config(config)
+            #         # we have a list of all modified primary and backup router network interfaces 
+            #         # create and launch a thread pool (with 8 max_workers) to execute network_interface_update function asynchronously for each network interface    
+            #         # start with first router based on switch_security_groups_to value
+            #         with pool.ThreadPoolExecutor(max_workers=8) as executer:
+            #             try:
+            #                 if switch_security_groups_to == "backup":
+            #                     # launch execution of updating primary router network interfaces 
+            #                     executer.map(network_interface_update, all_primary_router_network_interfaces)
+            #                 if switch_security_groups_to == "primary":
+            #                     # launch execution of updating backup router network interfaces 
+            #                     executer.map(network_interface_update, all_backup_router_network_interfaces)
+            #             except Exception as e:
+            #                 print(f"Request to execute network_interface_update function failed due to: {e}. Retrying in {cron_interval} minutes...")
+            #         # continue with second router based on switch_security_groups_to value
+            #         with pool.ThreadPoolExecutor(max_workers=8) as executer:
+            #             try:
+            #                 if switch_security_groups_to == "backup":
+            #                     # launch execution of updating backup router network interfaces
+            #                     executer.map(network_interface_update, all_backup_router_network_interfaces)
+            #                 if switch_security_groups_to == "primary":
+            #                     # launch execution of updating backup router network interfaces
+            #                     executer.map(network_interface_update, all_primary_router_network_interfaces)
+            #             except Exception as e:
+            #                 print(f"Request to execute network_interface_update function failed due to: {e}. Retrying in {cron_interval} minutes...")
+            #         # set flag of updating router network interfaces as False and update config file in bucket 
+            #         config['updating_network_interfaces'] = False
+            #         put_config(config)
+
+            if not router_vm_ids:
+                # exit from function as failover was executed for route tables and there are no security groups configuration for routers in configuration file
+                return
         else:
             # add custom custom metric 'route_switcher.switchover' into metric list for Yandex Monitoring that switchover is not required
             metrics.append({"name": "route_switcher.switchover", "labels": {"route_switcher_name": function_name, "folder_name": folder_name}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
             # write metrics into Yandex Monitoring
             write_metrics(metrics) 
-        
+
+        if router_vm_ids:
+            all_modified_router_network_interfaces = list()
+            for router_hc_address in router_vm_ids:
+                if router_vm_ids[router_hc_address]['primary'] == 'true':
+                    primary_router_hc_address = router_hc_address
+                else:
+                    backup_router_hc_address = router_hc_address
+                
+            if routerStatus[router_vm_ids[primary_router_hc_address]] != 'HEALTHY':
+                if routerStatus[router_vm_ids[backup_router_hc_address]] == 'HEALTHY':
+                    # if primary router is not healthy and backup router is healthy
+                    # prepare list of primary router network interfaces for updating security groups with security groups of backup router from configuration file 
+                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                    # prepare list of backup router network interfaces for updating security groups with security groups of primary router from configuration file
+                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces']))
+                # else:
+                #     # if primary router is not healthy and backup router is not healthy
+                #     # prepare list of primary router network interfaces for updating security groups with security groups of backup router from configuration file 
+                #     all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                #     # prepare list of backup router network interfaces for updating security groups with security groups of backup router from configuration file
+                #     all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                    
+            else:
+                if routerStatus[router_vm_ids[backup_router_hc_address]] == 'HEALTHY':
+                    if back_to_primary == 'true':
+                        # if primary router is healthy and backup router is healthy and back_to_primary == 'true'
+                        # prepare list of primary router network interfaces for updating security groups with security groups of primary router from configuration file 
+                        all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces']))
+                        # prepare list of backup router network interfaces for updating security groups with security groups of backup router from configuration file
+                        all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                else:
+                    # if primary router is healthy and backup router is not healthy
+                    # prepare list of primary router network interfaces for updating security groups with security groups of primary router from configuration file 
+                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces']))
+                    # prepare list of backup router network interfaces for updating security groups with security groups of backup router from configuration file
+                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                
+                # if primary router is healthy and backup router is healthy and back_to_primary = false  
+                # primary = backup sg config
+                # backup = primary sg config
+            
+
+            if all_modified_router_network_interfaces:
+                # correct security groups for router network interfaces   
+                # set flag of updating router network interfaces as True and update config file in bucket 
+                config['updating_network_interfaces'] = True
+                put_config(config)
+                with pool.ThreadPoolExecutor(max_workers=8) as executer:
+                    try:
+                        # launch execution of updating router network interfaces
+                        executer.map(network_interface_update, all_modified_router_network_interfaces)
+                    except Exception as e:
+                        print(f"Request to execute network_interface_update function failed due to: {e}. Retrying in {cron_interval} minutes...")  
+                # set flag of updating router network interfaces as False and update config file in bucket 
+                config['updating_network_interfaces'] = False
+                put_config(config)
+
+
         current_time = time.time()       
         if (current_time - start_time + router_healthcheck_interval) < function_life_time:
             if (current_time - last_check_time) < router_healthcheck_interval:
@@ -637,3 +735,5 @@ def handler(event, context):
             checking_num = checking_num + 1
         else:
             break
+    
+    
