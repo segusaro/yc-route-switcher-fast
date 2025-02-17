@@ -115,3 +115,21 @@ resource "yandex_storage_object" "route_switcher_config" {
     }
   )
 }
+
+resource "yandex_lockbox_secret" "s3_keys" {
+  name                = "s3-keys"
+  description         = "S3 access and secret access keys"
+  folder_id           = var.folder_id
+}
+
+resource "yandex_lockbox_secret_version" "s3_keys_secret_version" {
+  secret_id           = yandex_lockbox_secret.s3_keys.id
+  entries {
+    key        = "AWS_ACCESS_KEY_ID"
+    text_value = yandex_iam_service_account_static_access_key.route_switcher_sa_s3_keys.access_key 
+  }
+  entries {
+    key        = "AWS_SECRET_ACCESS_KEY"
+    text_value = yandex_iam_service_account_static_access_key.route_switcher_sa_s3_keys.secret_key 
+  }
+}

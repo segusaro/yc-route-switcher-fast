@@ -310,7 +310,7 @@ def get_diff_security_groups(vm_id, healthchecked_ip, config_router_interfaces):
         if config_interface['index']:
             # if there is difference between current security groups for routers and list of security groups in configuration file which we need to compare 
             if (sorted(network_interfaces_security_group_ids[str(config_interface['index'])]) != sorted(config_interface['security_group_ids'])):
-                all_modified_router_network_interfaces.append({'router_hc_address': healthchecked_ip, 'vm_id': vm_id, 'index': interface['index'], 'security_group_ids':interface['security_group_ids']})
+                all_modified_router_network_interfaces.append({'router_hc_address': healthchecked_ip, 'vm_id': vm_id, 'index': config_interface['index'], 'security_group_ids': config_interface['security_group_ids']})
     
     if all_modified_router_network_interfaces:
         return all_modified_router_network_interfaces           
@@ -671,20 +671,27 @@ def handler(event, context):
             write_metrics(metrics) 
 
         if router_vm_ids:
+            primary_router_hc_address = ""
+            backup_router_hc_address = ""
             all_modified_router_network_interfaces = list()
+            router_network_interfaces = list()
             for router_hc_address in router_vm_ids:
-                if router_vm_ids[router_hc_address]['primary'] == 'true':
+                if router_vm_ids[router_hc_address]['primary'] == True:
                     primary_router_hc_address = router_hc_address
                 else:
                     backup_router_hc_address = router_hc_address
                 
-            if routerStatus[router_vm_ids[primary_router_hc_address]] != 'HEALTHY':
-                if routerStatus[router_vm_ids[backup_router_hc_address]] == 'HEALTHY':
+            if routerStatus[primary_router_hc_address] != 'HEALTHY':
+                if routerStatus[backup_router_hc_address] == 'HEALTHY':
                     # if primary router is not healthy and backup router is healthy
                     # prepare list of primary router network interfaces for updating security groups with security groups of backup router from configuration file 
-                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                    router_network_interfaces = get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces'])
+                    if router_network_interfaces:
+                        all_modified_router_network_interfaces.extend(router_network_interfaces)
                     # prepare list of backup router network interfaces for updating security groups with security groups of primary router from configuration file
-                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces']))
+                    router_network_interfaces = get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces'])
+                    if router_network_interfaces:
+                        all_modified_router_network_interfaces.extend(router_network_interfaces)
                 # else:
                 #     # if primary router is not healthy and backup router is not healthy
                 #     # prepare list of primary router network interfaces for updating security groups with security groups of backup router from configuration file 
@@ -693,19 +700,27 @@ def handler(event, context):
                 #     all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
                     
             else:
-                if routerStatus[router_vm_ids[backup_router_hc_address]] == 'HEALTHY':
+                if routerStatus[backup_router_hc_address] == 'HEALTHY':
                     if back_to_primary == 'true':
                         # if primary router is healthy and backup router is healthy and back_to_primary == 'true'
                         # prepare list of primary router network interfaces for updating security groups with security groups of primary router from configuration file 
-                        all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces']))
+                        router_network_interfaces = get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces'])
+                        if router_network_interfaces:
+                            all_modified_router_network_interfaces.extend(router_network_interfaces)
                         # prepare list of backup router network interfaces for updating security groups with security groups of backup router from configuration file
-                        all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                        router_network_interfaces = get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces'])
+                        if router_network_interfaces:
+                            all_modified_router_network_interfaces.extend(router_network_interfaces)
                 else:
                     # if primary router is healthy and backup router is not healthy
                     # prepare list of primary router network interfaces for updating security groups with security groups of primary router from configuration file 
-                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces']))
+                    router_network_interfaces = get_diff_security_groups(router_vm_ids[primary_router_hc_address]['vm_id'], primary_router_hc_address, router_vm_ids[primary_router_hc_address]['interfaces'])
+                    if router_network_interfaces:
+                        all_modified_router_network_interfaces.extend(router_network_interfaces)
                     # prepare list of backup router network interfaces for updating security groups with security groups of backup router from configuration file
-                    all_modified_router_network_interfaces.extend(get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces']))
+                    router_network_interfaces = get_diff_security_groups(router_vm_ids[backup_router_hc_address]['vm_id'], backup_router_hc_address, router_vm_ids[backup_router_hc_address]['interfaces'])
+                    if router_network_interfaces:
+                        all_modified_router_network_interfaces.extend(router_network_interfaces)
                 
                 # if primary router is healthy and backup router is healthy and back_to_primary = false  
                 # primary = backup sg config
@@ -713,7 +728,7 @@ def handler(event, context):
             
 
             if all_modified_router_network_interfaces:
-                # correct security groups for router network interfaces   
+                # update security groups for router network interfaces   
                 # set flag of updating router network interfaces as True and update config file in bucket 
                 config['updating_network_interfaces'] = True
                 put_config(config)
@@ -726,9 +741,12 @@ def handler(event, context):
                 # set flag of updating router network interfaces as False and update config file in bucket 
                 config['updating_network_interfaces'] = False
                 put_config(config)
+                # exit from function as updating security groups for router network interfaces was executed
+                return
 
 
-        current_time = time.time()       
+        current_time = time.time() 
+        print (current_time - start_time)      
         if (current_time - start_time + router_healthcheck_interval) < function_life_time:
             if (current_time - last_check_time) < router_healthcheck_interval:
                 time.sleep(router_healthcheck_interval - (current_time - last_check_time))
