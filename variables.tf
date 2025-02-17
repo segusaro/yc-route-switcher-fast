@@ -55,7 +55,7 @@ variable "routers" {
 variable "route_switcher_sa_roles" {
   description = "Roles that are needed for route-switcher service account"
   type        = list(string)
-  default = ["load-balancer.privateAdmin", "serverless.functions.invoker", "storage.editor", "monitoring.editor", "compute.editor"]
+  default = ["load-balancer.privateAdmin", "serverless.functions.invoker", "storage.editor", "monitoring.editor", "compute.editor", "lockbox.payloadViewer"]
 }
 
 variable "cron_interval" {
