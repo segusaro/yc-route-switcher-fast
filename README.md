@@ -49,6 +49,9 @@
 - Поддержка нескольких сетевых ВМ (минимум 2)
 - Указание TCP порта для проверки доступности сетевых ВМ
 - Логирование работы модуля в Cloud Logging
+- Поставка метрик о работе модуля в Yandex Monitoring
+- Переключение групп безопасности между интерфейсами сетевых ВМ при отказе и восстановлении ВМ для использования в сценариях с балансировщиками нагрузки 
+
 
 ## Компоненты модуля
 
@@ -87,14 +90,34 @@
 
 | Название | Описание | Тип | Значение по умолчанию | Обязательный |
 | ----------- | ----------- | ----------- | ----------- | ----------- |
-| start_module | Включить или выключить работу модуля (создает или удаляет триггер, запускающий облачную функцию route-switcher раз в минуту). Используется значение `true` для включения, `false` для выключения. | `bool` | `false` | да |
-| folder_id | ID каталога для размещения компонент модуля route-switcher | `string` | `null` | да |
-| route_table_folder_list | Список ID каталогов, в которых размещены таблицы маршрутизации из списка route_table_list | `list(string)` | `[]` | да |
-| route_table_list | Список ID таблиц маршрутизации, для которых требуется переключение next hop адресов | `list(string)` | `[]` | да |
-| router_healthcheck_port | TCP порт для проверки доступности сетевых ВМ. Этот порт на сетевой ВМ становится недоступным для подключения. |  `number` | `null` | да |
-| back_to_primary | Включить или отключить возврат next hop адресов в таблицах маршрутизации на сетевую ВМ после ее восстановления. Используется значение `true` для включения, `false` для выключения. | `bool` | `true` | нет |
-| routers | Список IP-адресов сетевых ВМ. Для каждой ВМ необходимо указать:<br>`healthchecked_ip`: IP-адрес, используемый для проверки доступности сетевой ВМ<br>`healthchecked_subnet_id`: подсеть для healthchecked_ip<br>`interfaces`: список IP-адресов для сетевых интерфейсов этой ВМ<br>&nbsp;&nbsp;`own_ip`: IP-адрес интерфейса ВМ<br>&nbsp;&nbsp;`backup_peer_ip`: IP-адрес резервной ВМ для резервирования own_ip | <pre>list(object({<br> healthchecked_ip = string<br> healthchecked_subnet_id = string<br> interfaces = list(object({<br> own_ip = string<br> backup_peer_ip = string<br> }))<br> }))</pre> | `[]` | да |
-| router_healthcheck_interval | Интервал в секундах между последовательными проверками состояния сетевых ВМ во время работы облачной функции route-switcher. Значение интервала может быть не менее 10 с. Если меняется значение по умолчанию, то рекомендуется дополнительно провести тестирование сценариев отказоустойчивости.  | `number` | `60` | нет |
+| `start_module` | Включить или выключить работу модуля (создает или удаляет триггер, запускающий облачную функцию route-switcher раз в минуту). Используется значение `true` для включения, `false` для выключения. | `bool` | `false` | да |
+| `folder_id` | ID каталога для размещения компонент модуля route-switcher | `string` | `null` | да |
+| `route_table_folder_list` | Список ID каталогов, в которых размещены таблицы маршрутизации из списка `route_table_list` | `list(string)` | `[]` | да |
+| `route_table_list` | Список ID таблиц маршрутизации, для которых требуется переключение next hop адресов | `list(string)` | `[]` | да |
+| `router_healthcheck_port` | TCP порт для проверки доступности сетевых ВМ. Этот порт на сетевой ВМ становится недоступным для подключения. |  `number` | `null` | да |
+| `back_to_primary` | Включить или отключить возврат next hop адресов в таблицах маршрутизации на сетевую ВМ после ее восстановления. Используется значение `true` для включения, `false` для выключения. | `bool` | `true` | нет |
+| `routers` | Список конфигураций сетевых ВМ. Подробный список значений описан в [параметр routers](#параметр-routers). | `list(object)` | `[]` | да |
+| `router_healthcheck_interval` | Интервал в секундах между последовательными проверками состояния сетевых ВМ во время работы облачной функции route-switcher. Значение интервала может быть не менее 10 с. Если меняется значение по умолчанию, то рекомендуется дополнительно провести тестирование сценариев отказоустойчивости.  | `number` | `60` | нет |
+| `security_group_folder_list` | Список ID каталогов, в которых размещены группы безопасности в [параметре interfaces](#параметр-interfaces) | `list(string)` | `[]` | да, для переключения групп безопасности |
+
+### Параметр `routers`
+
+| Название | Описание | Тип | Значение по умолчанию | Обязательный |
+| ----------- | ----------- | ----------- | ----------- | ----------- |
+| `healthchecked_ip` | IP-адрес, используемый для проверки доступности сетевой ВМ | `string` | | да |
+| `healthchecked_subnet_id` | подсеть для `healthchecked_ip` | `string` |  | да |
+| `vm_id` | ID сетевой ВМ | `string` | | да, для переключения групп безопасности |
+| `primary` | Является ли сетевая ВМ основной или резервной. Используется значение `true` для основной ВМ, `false` для резервной. `primary = true` может быть только у одной ВМ. | `bool` | `false` | да, для переключения групп безопасности |
+| `interfaces` | Список интерфейсов сетевой ВМ. Подробный список значений описан в [параметре interfaces](#параметр-interfaces). | `list(object)` | | да |
+
+### Параметр `interfaces`:
+
+| Название | Описание | Тип | Значение по умолчанию | Обязательный |
+| ----------- | ----------- | ----------- | ----------- | ----------- |
+| `own_ip` | IP-адрес интерфейса ВМ | `string` | | да, если IP-адрес интерфейса используется в качестве next hop адреса в таблице маршрутизации |
+| `backup_peer_ip` | IP-адрес резервной ВМ для резервирования `own_ip` | `string` | | да, если IP-адрес интерфейса используется в качестве next hop адреса в таблице маршрутизации |
+| `index` | Номер сетевого интерфейса ВМ, например `1` | `number` | | да, для переключения групп безопасности на интерфейсе |
+| `security_group_ids` | Список ID групп безопасности, которые должны быть на интерфейсе ВМ в штатном режиме работы | `list(string)` | | да, для переключения групп безопасности на интерфейсе |
 
 
 ## Пример задания входных параметров модуля
@@ -175,6 +198,104 @@ module "route_switcher" {
         {
           own_ip = yandex_compute_instance.router-b.network_interface.0.ip_address
           backup_peer_ip = yandex_compute_instance.router-a.network_interface.0.ip_address
+        }
+      ]
+    }
+  ]
+}
+```
+
+</details>
+
+<details>
+<summary>Посмотреть пример задания входных параметров модуля для сценария переключения групп безопасности на одном сетевом интерфейсе и переключения next hop адресов для другого сетевого интерфейса.</summary>
+
+```yaml
+module "route_switcher" {
+  source    = "./modules/route-switcher/"
+  start_module          = false
+  folder_id = "b1g0000000000000mgmt" 
+  route_table_folder_list = ["b1g00000000000000dmz"]
+  route_table_list      = ["enp000000000000dmzrt"]
+  security_group_folder_list = ["b1m00000000000000pub"] 
+  router_healthcheck_port = 22
+  back_to_primary = true
+  routers = [
+    {
+      healthchecked_ip = "192.168.1.10"
+      healthchecked_subnet_id = "e9b000000000000mgmta"
+      primary = true
+      vm_id = "fv400000000000000000"
+      interfaces = [
+        {
+          own_ip = "10.160.1.10"
+          backup_peer_ip = "10.160.2.10"
+        },
+        {
+          index = 1
+          security_group_ids = ["enp000000000000004kq", "enp00000000000000vqo"]
+        }
+      ]
+    },
+    {
+      healthchecked_ip = "192.168.2.10"
+      healthchecked_subnet_id = "e9b000000000000mgmtb"
+      vm_id = "epd00000000000000000"
+      interfaces = [
+        {
+          own_ip = "10.160.2.10"
+          backup_peer_ip = "10.160.1.10"
+        },
+        {
+          index = 1
+          security_group_ids = ["enp000000000000004kq"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+</details>
+
+<details>
+<summary>Посмотреть пример задания входных параметров модуля для сценария переключения групп безопасности на одном сетевом интерфейсе и переключения next hop адресов для этого же сетевого интерфейса.</summary>
+
+```yaml
+module "route_switcher" {
+  source    = "./modules/route-switcher/"
+  start_module          = false
+  folder_id = "b1g0000000000000mgmt" 
+  route_table_folder_list = ["b1g00000000000000dmz"]
+  route_table_list      = ["enp000000000000dmzrt"]
+  security_group_folder_list = ["b1g00000000000000dmz"] 
+  router_healthcheck_port = 22
+  back_to_primary = true
+  routers = [
+    {
+      healthchecked_ip = "192.168.1.10"
+      healthchecked_subnet_id = "e9b000000000000mgmta"
+      primary = true
+      vm_id = "fv400000000000000000"
+      interfaces = [
+        {
+          own_ip = "10.160.1.10"
+          backup_peer_ip = "10.160.2.10"
+          index = 1
+          security_group_ids = ["enp000000000000004kq", "enp00000000000000vqo"]
+        }
+      ]
+    },
+    {
+      healthchecked_ip = "192.168.2.10"
+      healthchecked_subnet_id = "e9b000000000000mgmtb"
+      vm_id = "epd00000000000000000"
+      interfaces = [
+        {
+          own_ip = "10.160.2.10"
+          backup_peer_ip = "10.160.1.10"
+          index = 1
+          security_group_ids = ["enp000000000000004kq"]
         }
       ]
     }
