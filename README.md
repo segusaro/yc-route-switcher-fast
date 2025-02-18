@@ -322,6 +322,7 @@ terraform apply
 | `route_switcher.switchover` | Необходимость переключения next hop в таблицах маршрутизации | `0` - переключение не требуется<br>`1` - необходимо переключение | `route_switcher_name` - имя функции route-switcher<br>`folder_name` - имя каталога с функцией route-switcher |
 | `route_switcher.router_state` | Состояние доступности сетевой ВМ | `0` - недоступна<br>`1` - доступна | `router_ip` - IP-адрес сетевой ВМ<br>`folder_name` - имя каталога с функцией route-switcher |
 | `route_switcher.table_changed` | Изменение next hop в таблице маршрутизации | `0` - отсутствуют изменения<br>`1` - выполнены изменения<br>`2` - возникла ошибка при выполнении изменений | `route_switcher_name` - имя функции route-switcher<br>`route_table_name` - имя таблицы маршрутизации<br>`folder_name` - имя каталога с функцией route-switcher |
+| `route_switcher.security_groups_changed` | Изменение групп безопасности у интерфейса сетевой ВМ | `0` - отсутствуют изменения<br>`1` - выполнен запрос на изменение<br>`2` - возникла ошибка при выполнении изменений | `route_switcher_name` - имя функции route-switcher<br>`router_ip` - IP-адрес сетевой ВМ<br>`interface_index` - номер интерфейса сетевой ВМ<br>`folder_name` - имя каталога с функцией route-switcher |
 
 - Метрики имеют значение `service=custom` (Custom Metrics, пользовательские метрики)  
 - Для визуализации этих метрик можно [создать дашборд](https://yandex.cloud/ru/docs/monitoring/operations/dashboard/create)
