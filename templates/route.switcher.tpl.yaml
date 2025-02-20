@@ -2,7 +2,6 @@ ${yamlencode({
   loadBalancerId = load_balancer_id
   targetGroupId = target_group_id
   updating_tables = false
-  updating_network_interfaces = false
   route_tables = [
     for rt_id in route_tables : {
       route_table_id = rt_id

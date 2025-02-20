@@ -128,6 +128,7 @@ def get_config_route_tables_and_routers():
     
     nexthops = {}
     router_error = False
+    security_groups = False
     vm_id_counter = 0
     primary_counter = 0
     routers = {}
@@ -150,44 +151,48 @@ def get_config_route_tables_and_routers():
                 if ('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids']):
                     if ('index' in interface and interface['index']) and ('security_group_ids' in interface and interface['security_group_ids']):
                         if 'vm_id' not in router or not router['vm_id']:
-                            print(f"Router {router_hc_address} does not have 'vm_id' configuration. Please add 'vm_id' value in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
+                            print(f"Router {router_hc_address} does not have 'vm_id' configuration and has 'index' and 'security groups' configuration for interfaces. Please add 'vm_id' value in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
                             router_error = True
-                            break
+                        else:
+                            security_groups = True
                     else:
-                        print(f"Router {router_hc_address} does not have configuration for security groups for interface. Please check and add 'index', 'security_group_ids' values in 'interfaces' input variable for Terraform route-switcher module.")
-                        router_error = True
-                        continue
+                        if 'index' in interface and interface['index']:
+                            print(f"Router {router_hc_address} does not have 'security groups' configuration for interface with {interface['index']} index. Please add 'security_group_ids' value in 'interfaces' input variable for Terraform route-switcher module.")
+                            router_error = True
+                        if 'security_group_ids' in interface and interface['security_group_ids']:
+                            print(f"Router {router_hc_address} does not have 'index' configuration for interface with {interface['security_group_ids']} security groups. Please add 'index' value in 'interfaces' input variable for Terraform route-switcher module.")
+                            router_error = True
                 # prepare dictionary with router nexthops as {key:value}, where key - nexthop address, value - nexthop address of backup router
-                if 'own_ip' in interface and interface['own_ip']:
-                    if 'backup_peer_ip' in interface and interface['backup_peer_ip']:
+                if ('own_ip' in interface and interface['own_ip']) or ('backup_peer_ip' in interface and interface['backup_peer_ip']):
+                    if ('own_ip' in interface and interface['own_ip']) and ('backup_peer_ip' in interface and interface['backup_peer_ip']):
                         nexthops[interface['own_ip']] = interface['backup_peer_ip']
                         # prepare dictionary with router healthcheck IP addresses as {key:value}, where key - nexthop address, value - router healthcheck IP address of this nexthop address
                         routers[interface['own_ip']] = router_hc_address      
                     else:
-                        if not (('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids'])):
-                            print(f"Router {router_hc_address} does not have 'backup_peer_ip' configuration for interface. Please add 'backup_peer_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
+                        if 'backup_peer_ip' in interface and interface['backup_peer_ip']:
+                            print(f"Router {router_hc_address} does not have 'own_ip' configuration for interface. Please add 'own_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
                             router_error = True
-                            continue
-                else:
-                    if not (('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids'])):
-                        print(f"Router {router_hc_address} does not have 'own_ip' configuration for interface. Please add 'own_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
-                        router_error = True
-                        continue            
+                        if 'own_ip' in interface and interface['own_ip']:
+                            print(f"Router {router_hc_address} does not have 'backup_peer_ip' configuration for interface. Please add 'backup_peer_ip' value in 'interfaces' input variable for Terraform route-switcher module.")
+                            router_error = True                    
             if 'vm_id' in router and router['vm_id']:
                 vm_id_counter += 1
-            if 'primary' in router and router['primary']:
-                primary_counter += 1
+                if not security_groups:
+                    print(f"Router {router_hc_address} has 'vm_id' configuration and does not have 'index' and 'security groups' configuration for interfaces. Please add 'index' and 'security_group_ids' value in 'interfaces' input variable for Terraform route-switcher module or remove 'vm_id' value for router {router_hc_address} configuration.")
+                    router_error = True
+                if 'primary' in router and router['primary']:
+                    primary_counter += 1
         else:
             print(f"Router {router_hc_address} is not in target endpoints of load balancer {config['loadBalancerId']}. Please check load balancer configuration or 'routers' input variable for Terraform route-switcher module.")
             router_error = True
 
-    if vm_id_counter == 1:
-        print(f"There is only one router with 'vm_id' configuration. Switching of security group between primary and backup routers does not work. Please add 'vm_id' value to another router in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
-        router_error = True
-    
-    if vm_id_counter and primary_counter != 1:
-        print(f"There should be one router with 'primary = true' configuration. Switching of security group between primary and backup routers does not work. Please add 'primary = true' value to only one router in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
-        router_error = True
+    if vm_id_counter:
+        if primary_counter != 1:
+            print(f"There should be one router with 'primary = true' configuration. Please add 'primary = true' value to only one router with 'vm_id' value in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
+            router_error = True
+        if vm_id_counter != 2:
+            print(f"There should be two routers with 'vm_id' configuration. Please add 'vm_id' value to only two routers in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
+            router_error = True
 
     all_routeTables = {}
     config_changed = False
@@ -290,7 +295,10 @@ def get_diff_security_groups(vm_id, healthchecked_ip, config_router_interfaces):
         if config_interface['index']:
             # if there is difference between current security groups for routers and list of security groups in configuration file which we need to compare 
             if (sorted(network_interfaces_security_group_ids[str(config_interface['index'])]) != sorted(config_interface['security_group_ids'])):
-                all_modified_router_network_interfaces.append({'router_hc_address': healthchecked_ip, 'vm_id': vm_id, 'index': config_interface['index'], 'security_group_ids': config_interface['security_group_ids']})
+                if 'last_operation_id' in config_interface and config_interface['last_operation_id']:
+                    all_modified_router_network_interfaces.append({'router_hc_address': healthchecked_ip, 'vm_id': vm_id, 'index': config_interface['index'], 'security_group_ids': config_interface['security_group_ids'], 'last_operation_id': config_interface['last_operation_id']})
+                else:
+                    all_modified_router_network_interfaces.append({'router_hc_address': healthchecked_ip, 'vm_id': vm_id, 'index': config_interface['index'], 'security_group_ids': config_interface['security_group_ids'], 'last_operation_id': None})
     
     if all_modified_router_network_interfaces:
         return all_modified_router_network_interfaces           
@@ -371,23 +379,21 @@ def network_interface_update(router_network_interface):
     '''
     changes router network interface by using REST API request to Compute API
     :param router_network_interface: dictionary with router vm id, network interface index and list of security group ids
-    :return:
+    :return: operation id for updateNetworkInterface API request
     '''
 
-    # get operations for vm id from Compute API
-    try:
-        r = requests.get("https://compute.api.cloud.yandex.net/compute/v1/instances/%s/operations?pageSize=1" % router_network_interface['vm_id'], headers={'Authorization': 'Bearer %s'  % iam_token})
-    except Exception as e:
-        print(f"Request to get operations for router {router_network_interface['router_hc_address']} failed due to: {e}.")
-        return     
-    if r.status_code != 200:
-        print(f"Unexpected status code {r.status_code} for getting operations for router {router_network_interface['router_hc_address']}. More details: {r.json().get('message')}.")
-        return
-    if 'operations' in r.json():
-        # if last operation is still in progress (done = false) exit from function and do not try to update network interface
-        if not r.json()['operations'][0]['done']:
-            print(f"Operation id {r.json()['operations'][0]['id']} is still in progress for updating router {router_network_interface['router_hc_address']} network interfaces.")
-            return
+    if router_network_interface['last_operation_id']:
+        # get last operations updateNetworkInterface for vm id from Compute API
+        try:
+            r = requests.get("https://operation.api.cloud.yandex.net/operations/%s" % router_network_interface['last_operation_id'], headers={'Authorization': 'Bearer %s'  % iam_token})
+        except Exception as e:
+            print(f"Request to get operation {router_network_interface['last_operation_id']} for router {router_network_interface['router_hc_address']} failed due to: {e}.")    
+        if r.status_code != 200:
+            print(f"Unexpected status code {r.status_code} for getting operation {router_network_interface['last_operation_id']} for router {router_network_interface['router_hc_address']}. More details: {r.json().get('message')}.")
+        if 'done' in r.json() and not r.json()['done']:
+            # if last operation for updating this interface is still in progress (done = false) exit from function and do not try to update network interface
+            print(f"Operation id {router_network_interface['last_operation_id']} is still in progress for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}.")
+            return {}
            
     print(f"Updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']} with security groups: {router_network_interface['security_group_ids']}")
     try:
@@ -396,23 +402,25 @@ def network_interface_update(router_network_interface):
         print(f"Request to update router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']} failed due to: {e}. Retrying in {cron_interval} minutes...")
         # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring that error happened during security groups change for router
         metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "router_ip": router_network_interface['router_hc_address'], "interface_index": router_network_interface['index'], "folder_name": folder_name}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
-        return
+        return {}
 
     if r.status_code != 200:
         print(f"Unexpected status code {r.status_code} for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}. More details: {r.json().get('message')}. Retrying in {cron_interval} minutes...")
         # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring that error happened during security groups change for router
         metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "router_ip": router_network_interface['router_hc_address'], "interface_index": router_network_interface['index'], "folder_name": folder_name}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
-        return
+        return {}
 
     if 'id' in r.json():
         operation_id = r.json()['id']
         print(f"Operation {operation_id} for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}. More details: {r.json()}")
         # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring about security groups change for router
         metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "router_ip": router_network_interface['router_hc_address'], "interface_index": router_network_interface['index'], "folder_name": folder_name}, "type": "IGAUGE", "value": 1, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
+        return {'vm_id': router_network_interface['vm_id'], 'interface_index': router_network_interface['index'], 'operation_id': operation_id}
     else:
         print(f"Failed to start operation for updating router {router_network_interface['router_hc_address']} network interface index {router_network_interface['index']}. Retrying in {cron_interval} minutes...")
         # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring that error happened during security groups change for router
         metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "router_ip": router_network_interface['router_hc_address'], "interface_index": router_network_interface['index'], "folder_name": folder_name}, "type": "IGAUGE", "value": 2, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
+        return {}
 
 
 def handler(event, context):
@@ -436,7 +444,6 @@ def handler(event, context):
         # exit from function as some errors happened when getting route tables
         return
     
-    config = config_route_tables_routers['config']
     all_routeTables = config_route_tables_routers['all_routeTables']
     routers = config_route_tables_routers['routers']
     function_life_time = cron_interval * 60
@@ -465,24 +472,6 @@ def handler(event, context):
                 config['updating_tables'] = False
                 put_config(config)
                 return
-
-        if config['updating_network_interfaces'] == True:
-            # current changes of router network interfaces are still running, then wait for a timer
-            current_time = time.time()       
-            if (current_time - start_time + router_healthcheck_interval) < function_life_time:
-                print(f"Another operation for updating router network interfaces is running. Retrying in {router_healthcheck_interval} seconds...")
-                if (current_time - last_check_time) < router_healthcheck_interval:
-                    time.sleep(router_healthcheck_interval - (current_time - last_check_time))
-                checking_num = checking_num + 1
-                continue
-            else:
-                # looks like something goes wrong if during the time of cron_interval (1 min or more) another operation for updating router network interfaces has not been completed
-                # then try to update network interfaces once again during the next launch of function
-                # set flag of updating network interfaces as False and update config file in bucket 
-                config['updating_network_interfaces'] = False
-                put_config(config)
-                return
-
         # get router status from NLB
         routerStatus = get_router_status(config)
         if routerStatus is None:
@@ -513,8 +502,6 @@ def handler(event, context):
                 router_vm_ids[router_hc_address] = {'vm_id': router['vm_id'], 'primary': router['primary'], 'interfaces': router['interfaces']}  
 
         router_with_changed_status = ""
-        backup_router_hc_address = ""
-        switch_security_groups_to = ""
         all_modified_routeTables = list()
         for config_route_table in config['route_tables']:
             routeTable_name = all_routeTables[config_route_table['route_table_id']]['name']
@@ -535,8 +522,6 @@ def handler(event, context):
                                 if router_with_changed_status != routers[primary_router]:
                                     router_with_changed_status = routers[primary_router]
                                     print(f"Router {router_with_changed_status} became HEALTHY.")
-                                    backup_router_hc_address = routers[ip_route['nextHopAddress']]
-                                    switch_security_groups_to = "primary"
                                 ip_route.update({'nextHopAddress':primary_router})
                                 routeTable_changes = {'modified':True, 'next_hop':primary_router}
                             else:
@@ -546,9 +531,7 @@ def handler(event, context):
                                 if backup_router in healthy_nexthops:
                                     if router_with_changed_status != routers[ip_route['nextHopAddress']]:
                                         router_with_changed_status = routers[ip_route['nextHopAddress']]
-                                        print(f"Router {router_with_changed_status} is UNHEALTHY.")
-                                        backup_router_hc_address = routers[backup_router]
-                                        switch_security_groups_to = "backup"                     
+                                        print(f"Router {router_with_changed_status} is UNHEALTHY.")                   
                                     ip_route.update({'nextHopAddress':backup_router})
                                     routeTable_changes = {'modified':True, 'next_hop':backup_router}
                                 else:
@@ -563,8 +546,6 @@ def handler(event, context):
                                     if router_with_changed_status != routers[primary_router]:
                                         router_with_changed_status = routers[primary_router]
                                         print(f"Router {router_with_changed_status} became HEALTHY.")
-                                        backup_router_hc_address = routers[ip_route['nextHopAddress']]
-                                        switch_security_groups_to = "primary"
                                     ip_route.update({'nextHopAddress':primary_router})
                                     routeTable_changes = {'modified':True, 'next_hop':primary_router}
                                
@@ -669,23 +650,32 @@ def handler(event, context):
 
 
             if all_modified_router_network_interfaces:
-                # update security groups for router network interfaces   
-                # set flag of updating router network interfaces as True and update config file in bucket 
-                config['updating_network_interfaces'] = True
-                put_config(config)
+                # update security groups for router network interfaces  
+                operation_results = list()
                 with pool.ThreadPoolExecutor(max_workers=8) as executer:
                     try:
-                        # launch execution of updating router network interfaces
-                        executer.map(network_interface_update, all_modified_router_network_interfaces)
+                        # launch execution of updating router network interfaces and receiving return results of function 'network_interface_update' 
+                        operation_results = list(executer.map(network_interface_update, all_modified_router_network_interfaces))
                     except Exception as e:
                         print(f"Request to execute network_interface_update function failed due to: {e}. Retrying in {cron_interval} minutes...")  
-                # set flag of updating router network interfaces as False and update config file in bucket 
-                config['updating_network_interfaces'] = False
-                put_config(config)
+                operation_counter = 0
+                if operation_results:
+                    # update config file in bucket with operation id of updateNetworkInterface API request for each router interfaces beeing updated                  
+                    for operation in operation_results:
+                        if 'vm_id' in operation and operation['vm_id']:
+                            for router in config['routers']:
+                                if 'vm_id' in router and router['vm_id'] and router['vm_id'] == operation['vm_id']:
+                                    for router_interface in router['interfaces']:
+                                        if router_interface['index'] == operation['interface_index']: 
+                                            router_interface.update({'last_operation_id': operation['operation_id']})
+                                            operation_counter += 1 
                 # write metrics into Yandex Monitoring
                 write_metrics(metrics)
-                # exit from function as update for security groups was executed
-                return
+                if operation_counter:
+                    # update config file in bucket with operation id of updateNetworkInterface API requests
+                    put_config(config)
+                    # exit from function as update for security groups was executed
+                    return
             else:
                 # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring that security group is not changed for routers
                 for router_config_interface in router_vm_ids[primary_router_hc_address]['interfaces']:
