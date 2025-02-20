@@ -210,8 +210,12 @@ module "route_switcher" {
 
 ### Пример задания входных параметров модуля для сценария переключения групп безопасности
 
+Пример схемы с каталогами, таблицами маршрутизации, группами безопасности и IP-адресами сетевых ВМ.
+
+<img src="./images/example-with-sg.png" alt="Пример схемы для входных параметров модуля для сценария переключения групп безопасности" width="700"/>
+
 <details>
-<summary>Посмотреть пример задания входных параметров модуля для сценария переключения групп безопасности на одном сетевом интерфейсе и переключения next hop адресов для другого сетевого интерфейса.</summary>
+<summary>Посмотреть пример задания входных параметров модуля для сценария переключения групп безопасности на public сетевых интерфейсах ВМ и переключения next hop адресов в таблице маршрутизации dmz-rt.</summary>
 
 ```yaml
 module "route_switcher" {
@@ -228,7 +232,7 @@ module "route_switcher" {
       healthchecked_ip = "192.168.1.10"
       healthchecked_subnet_id = "e9b000000000000mgmta"
       primary = true
-      vm_id = "fv400000000000000000"
+      vm_id = "fv400000000000000vma"
       interfaces = [
         {
           own_ip = "10.160.1.10"
@@ -236,14 +240,14 @@ module "route_switcher" {
         },
         {
           index = 1
-          security_group_ids = ["enp000000000000004kq", "enp00000000000000vqo"]
+          security_group_ids = ["enp00000000000000vma", "enp00000000000000nlb"]
         }
       ]
     },
     {
       healthchecked_ip = "192.168.2.10"
       healthchecked_subnet_id = "e9b000000000000mgmtb"
-      vm_id = "epd00000000000000000"
+      vm_id = "epd00000000000000vmb"
       interfaces = [
         {
           own_ip = "10.160.2.10"
@@ -251,54 +255,7 @@ module "route_switcher" {
         },
         {
           index = 1
-          security_group_ids = ["enp000000000000004kq"]
-        }
-      ]
-    }
-  ]
-}
-```
-
-</details>
-
-<details>
-<summary>Посмотреть пример задания входных параметров модуля для сценария переключения групп безопасности на одном сетевом интерфейсе и переключения next hop адресов для этого же сетевого интерфейса.</summary>
-
-```yaml
-module "route_switcher" {
-  source    = "./modules/route-switcher/"
-  start_module          = false
-  folder_id = "b1g0000000000000mgmt" 
-  route_table_folder_list = ["b1g00000000000000dmz"]
-  route_table_list      = ["enp000000000000dmzrt"]
-  security_group_folder_list = ["b1g00000000000000dmz"] 
-  router_healthcheck_port = 22
-  back_to_primary = true
-  routers = [
-    {
-      healthchecked_ip = "192.168.1.10"
-      healthchecked_subnet_id = "e9b000000000000mgmta"
-      primary = true
-      vm_id = "fv400000000000000000"
-      interfaces = [
-        {
-          own_ip = "10.160.1.10"
-          backup_peer_ip = "10.160.2.10"
-          index = 1
-          security_group_ids = ["enp000000000000004kq", "enp00000000000000vqo"]
-        }
-      ]
-    },
-    {
-      healthchecked_ip = "192.168.2.10"
-      healthchecked_subnet_id = "e9b000000000000mgmtb"
-      vm_id = "epd00000000000000000"
-      interfaces = [
-        {
-          own_ip = "10.160.2.10"
-          backup_peer_ip = "10.160.1.10"
-          index = 1
-          security_group_ids = ["enp000000000000004kq"]
+          security_group_ids = ["enp00000000000000vmb"]
         }
       ]
     }
@@ -313,9 +270,9 @@ module "route_switcher" {
 
 | Название | Описание |
 | ----------- | ----------- |
-| route-switcher_nlb | Имя сетевого балансировщика в каталоге `folder_id` для мониторинга доступности сетевых ВМ |
-| route-switcher_bucket | Имя бакета в Object Storage в каталоге `folder_id` для хранения файла конфигурации с информацией:<br>- таблицы маршрутизации с указанием предпочтительных next hop адресов для префиксов<br>- IP-адреса сетевых ВМ: для проверки доступности, адреса для каждого сетевого интерфейса ВМ (IP-адрес ВМ и соответствующий IP-адрес резервной ВМ) |
-| route-switcher_function | Имя облачной функции в каталоге `folder_id`, обеспечивающей работу модуля route-switcher по отказоустойчивости исходящего трафика из сегментов |
+| `route-switcher_nlb` | Имя сетевого балансировщика в каталоге `folder_id` для мониторинга доступности сетевых ВМ |
+| `route-switcher_bucket` | Имя бакета в Object Storage в каталоге `folder_id` для хранения файла конфигурации с информацией:<br>- таблицы маршрутизации с указанием предпочтительных next hop адресов для префиксов<br>- IP-адреса сетевых ВМ: для проверки доступности, адреса для каждого сетевого интерфейса ВМ (IP-адрес ВМ и соответствующий IP-адрес резервной ВМ) |
+| `route-switcher_function` | Имя облачной функции в каталоге `folder_id`, обеспечивающей работу модуля route-switcher по отказоустойчивости исходящего трафика из сегментов |
 
 
 ## Подготовка к развертыванию
