@@ -268,8 +268,8 @@ module "route_switcher" {
       vm_id = "fv400000000000000vma"
       interfaces = [
         {
-          own_ip = "10.160.1.10"
-          backup_peer_ip = "10.160.2.10"
+          own_ip = "192.168.1.10"
+          backup_peer_ip = "192.168.2.10"
         },
         {
           index = 1
@@ -283,8 +283,8 @@ module "route_switcher" {
       vm_id = "epd00000000000000vmb"
       interfaces = [
         {
-          own_ip = "10.160.2.10"
-          backup_peer_ip = "10.160.1.10"
+          own_ip = "192.168.2.10"
+          backup_peer_ip = "192.168.1.10"
         },
         {
           index = 1
