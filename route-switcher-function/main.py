@@ -148,15 +148,15 @@ def get_config_route_tables_and_routers():
                 continue
             
             for interface in router_interfaces:
-                if ('index' in interface and interface['index']) or ('security_group_ids' in interface and interface['security_group_ids']):
-                    if ('index' in interface and interface['index']) and ('security_group_ids' in interface and interface['security_group_ids']):
+                if ('index' in interface and interface['index'] is not None) or ('security_group_ids' in interface and interface['security_group_ids']):
+                    if ('index' in interface and interface['index'] is not None) and ('security_group_ids' in interface and interface['security_group_ids']):
                         if 'vm_id' not in router or not router['vm_id']:
                             print(f"Router {router_hc_address} does not have 'vm_id' configuration and has 'index' and 'security groups' configuration for interfaces. Please add 'vm_id' value in 'routers' input variable for Terraform route-switcher module. Retrying in {cron_interval} minutes...")
                             router_error = True
                         else:
                             security_groups = True
                     else:
-                        if 'index' in interface and interface['index']:
+                        if 'index' in interface and interface['index'] is not None:
                             print(f"Router {router_hc_address} does not have 'security groups' configuration for interface with {interface['index']} index. Please add 'security_group_ids' value in 'interfaces' input variable for Terraform route-switcher module.")
                             router_error = True
                         if 'security_group_ids' in interface and interface['security_group_ids']:
