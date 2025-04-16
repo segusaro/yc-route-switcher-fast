@@ -292,7 +292,7 @@ def get_diff_security_groups(vm_id, healthchecked_ip, config_router_interfaces):
         return
     
     for config_interface in config_router_interfaces:
-        if config_interface['index']:
+        if config_interface['index'] is not None:
             # if there is difference between current security groups for routers and list of security groups in configuration file which we need to compare 
             if (sorted(network_interfaces_security_group_ids[str(config_interface['index'])]) != sorted(config_interface['security_group_ids'])):
                 if 'last_operation_id' in config_interface and config_interface['last_operation_id']:
@@ -679,10 +679,10 @@ def handler(event, context):
             else:
                 # add custom metric 'route_switcher.security_groups_changed' into metric list for Yandex Monitoring that security group is not changed for routers
                 for router_config_interface in router_vm_ids[primary_router_hc_address]['interfaces']:
-                    if router_config_interface['index']:
+                    if router_config_interface['index'] is not None:
                         metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "router_ip": primary_router_hc_address, "interface_index": router_config_interface['index'], "folder_name": folder_name}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
                 for router_config_interface in router_vm_ids[backup_router_hc_address]['interfaces']:
-                    if router_config_interface['index']:
+                    if router_config_interface['index'] is not None:
                         metrics.append({"name": "route_switcher.security_groups_changed", "labels": {"route_switcher_name": function_name, "router_ip": backup_router_hc_address, "interface_index": router_config_interface['index'], "folder_name": folder_name}, "type": "IGAUGE", "value": 0, "ts": str(datetime.datetime.now(datetime.timezone.utc).isoformat())})
                 # write metrics into Yandex Monitoring
                 write_metrics(metrics)
