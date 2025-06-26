@@ -442,4 +442,6 @@ terraform apply
 
 1. [Решение по развертыванию защищенной высокодоступной сетевой инфраструктуры с выделением DMZ на основе Check Point NGFW](https://github.com/yandex-cloud-examples/yc-dmz-with-high-available-ngfw/)
 
-1. [Решение по развертыванию защищенной высокодоступной сетевой инфраструктуры с выделением DMZ на основе UserGate NGFW](https://yandex.cloud/ru/docs/tutorials/routing/high-accessible-dmz-usergate)
+1. [Решение по развертыванию защищенной высокодоступной сетевой инфраструктуры с выделением DMZ на основе UserGate NGFW](https://github.com/yandex-cloud-examples/yc-dmz-with-high-available-usergate-ngfw)
+
+1. [Решение по развертыванию защищенной высокодоступной сетевой инфраструктуры с выделением DMZ на основе Смарт-Софт NGFW](https://github.com/yandex-cloud-examples/yc-dmz-with-high-available-ting-ngfw)
